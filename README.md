@@ -12,5 +12,5 @@ Making this repo at this unfinished stage so I can work on my laptop and my desk
  * make a framework for agents to take actions using their assigned ships.
  * simulate special relativity excluding time dilation and light lag per frame of reference
  * simulate time dilation and light lag per frame of reference
- * make preprogrammed agents for the Hellebore and the chasing shi
+ * make preprogrammed agents for the Hellebore and the chasing ship
  
