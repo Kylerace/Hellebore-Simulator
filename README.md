@@ -1,4 +1,4 @@
-#Summary
+# Summary
 This is Hellebore Simulator, a space combat simulator I'm making to see if the Hellebore magnetic accelerator 
 cannon from [The Last Angel](https://forums.spacebattles.com/threads/the-last-angel.244209/) series of webnovels makes any sense at all.
 Specifically, I want to be able to simulate special relativity to see if a projectile fired at high fractions of the speed of light
@@ -7,7 +7,7 @@ going at low fractions of the speed of light and with a randomly changing trajec
 
 Making this repo at this unfinished stage so I can work on my laptop and my desktop.
 
-#To Do
+# To Do
  * simulate newtonian mechanics <- I am here
  * make a framework for agents to take actions using their assigned ships.
  * simulate special relativity excluding time dilation and light lag per frame of reference
