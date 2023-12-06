@@ -1,8 +1,14 @@
 use std::any::Any;
 use std::any::TypeId;
+use std::cell::RefCell;
 use std::ops::Index;
 use std::ops::Add;
+use std::ops::Mul;
 use std::rc::Rc;
+
+use nalgebra::Matrix;
+use nalgebra::Rotation3;
+use nalgebra::Vector3;
 
 const X: usize = 0;
 const Y: usize = 1;
@@ -14,6 +20,7 @@ const YAW: usize = 2;
 
 const DEFAULT_COSMIC_SPEED_LIMIT: f64 = 299_792_458.0;
 const DEFAULT_SPEED_OF_LIGHT: f64 = DEFAULT_COSMIC_SPEED_LIMIT;
+const PI: f64 = std::f64::consts::PI;
 
 static C_S_L: f64 = DEFAULT_COSMIC_SPEED_LIMIT;
 static C_V: f64 = DEFAULT_SPEED_OF_LIGHT;
@@ -35,6 +42,11 @@ macro_rules! as_any {
             self
         }
     }
+}
+macro_rules! Vect3_new {
+    () => {
+        Vect3::new(0.,0.,0.)
+    };
 }
 /*
 macro_rules! vec_new {
@@ -92,6 +104,8 @@ pub trait Vector {
 
 
 }
+
+pub type Vect3 = Vector3<f64>;
 
 #[derive(Default)]
 pub struct vect3{arr: [f64; 3]}
@@ -175,108 +189,16 @@ impl Clone for angvect3 {
 }
 vec_index!(angvect3);
 
-pub trait Interaction {
-    fn interact(&self, start:f64, dt:f64) -> (Rc<Mover>, vect3, angvect3);
-    fn as_any(&self) -> &dyn Any;
-}
-
-
-pub struct ThrustInteraction {
-    thruster: Rc<Mover>,
-    parent: Rc<Mover>,
-
-    effective_translation: vect3,
-    effective_rotation: angvect3,
-    flip: bool,
-}
-
-impl ThrustInteraction {
-    fn new(thruster: &mut Rc<Mover> , flip: Option<bool>) -> ThrustInteraction {
-        let flip = flip.unwrap_or(true);
-
-        let mut parent: Rc<Mover> = thruster.clone();
-        let mut effective_translation: vect3 = thruster.translation.clone();
-        let mut effective_rotation: angvect3 = thruster.rotation.clone();
-
-        if flip == true {
-            effective_rotation.add_all(-180.);
-        }
-
-        let mut recipient: &Rc<Mover> = &thruster;
-        while recipient.parent.is_some() {
-            match &recipient.parent {
-                Some(val) => {
-                    recipient = &val;
-                }
-                None => break
-            }
-
-            effective_translation.vector_add(&recipient.translation);
-            effective_rotation.vector_add(&recipient.rotation);
-        }
-        parent = recipient.clone();
-
-        let ret = ThrustInteraction{
-            thruster: thruster.clone(),
-            parent: parent.clone(), 
-            effective_translation, 
-            effective_rotation, 
-            flip
-        };
-        thruster.owned_interactions.push(Rc::new(ret));
-
-        ret
-    }
-    
-}
-
-impl Interaction for ThrustInteraction {
-    fn interact(&self, start:f64, dt:f64) -> (Rc<Mover>, vect3, angvect3) {
-        let mut thrust_center: vect3 = vect3{arr: [0.,0.,0.]};
-        let mut thrust_rotation: angvect3 = angvect3{arr: [0.,0.,0.]};
-        if std::ptr::eq(&self.thruster as *const _, &self.parent as *const _) {
-            thrust_center = self.parent.translation.clone();
-            thrust_rotation = self.parent.rotation.clone();
-
-            if self.flip {
-                thrust_rotation.add_all(-180.0);
-            }
-        } else {
-            thrust_center = self.effective_translation.clone();
-            thrust_rotation = self.effective_rotation.clone();
-        }
-
-        let thrust: f64 = self.thruster.current_thrust;
-        
-        let F: vect3 = vect3{arr: [
-            thrust * thrust_rotation[ROLL], 
-            thrust * thrust_rotation[PITCH], 
-            thrust * thrust_rotation[YAW]]
-        };
-
-        let torque: angvect3 = angvect3 { arr: [
-            thrust_center[Y] * F[Z] - F[Y] * thrust_center[Z],
-            thrust_center[Z] * F[X] - F[Z] * thrust_center[X],
-            thrust_center[X] * F[Y] - F[X] * thrust_center[Y]
-        ] 
-        };
-
-        (self.parent.clone(), F, torque)
-    }
-    as_any!();
-}
-
 pub struct Mover {
     parent: Option<Rc<Mover>>,
+    children: Vec<Rc<Mover>>,
 
-    translation: vect3,
-    rotation: angvect3,
+    ///relative to the origin of the space it is operating in, outer space for top level Mover's and the center of parent for recursive Mover's
+    translation: RefCell<Vect3>,
+    rotation: RefCell<Vect3>,//figure out how to modulo it later
 
-    velocity: vect3,
-    angular_velocity: angvect3,
-
-    interactions: Vec<Rc<dyn Interaction>>,
-    owned_interactions: Vec<Rc<dyn Interaction>>,
+    velocity: RefCell<Vect3>,
+    angular_velocity: RefCell<Vect3>,
 
     rest_mass: f64,
     rel_mass: f64,
@@ -287,65 +209,62 @@ pub struct Mover {
     is_alive: bool,
 
     current_thrust: f64,
+    thrust_rotation: Vect3,
+    F_thrust: Vect3,
+
     name: String,
 
 }
+
+
+
 impl Mover {
-    fn set_thrust(&mut self, new_thrust: f64) {
-        self.current_thrust = new_thrust;
-        let mut existing_thrust_interaction: Option<&ThrustInteraction> = None;
-        /*self.owned_interactions
-            .iter()
-            .any(|e| e.is::<ThrustInteraction>());//e.type_id() == TypeId::of::<ThrustInteraction>()
-        */
+    pub fn set_thrust(&mut self, new_thrust: f64) {
+        self.current_thrust = new_thrust; 
+        self.set_F_thrust();
+    }
 
-        for i in 0..self.owned_interactions.len() {
-            let e = &self.owned_interactions[i];
-            match e.as_any().downcast_ref::<ThrustInteraction>() {
-                Some(m) => {
-                    existing_thrust_interaction = Some(m);
-                    break;
-                }
-                None => {
-                    continue;
-                }
-            };
-        }
+    pub fn rotate_thrust(&mut self, rotate_by: Vect3) {
+        self.thrust_rotation += rotate_by;
+        self.set_F_thrust();
+    }
 
-        match existing_thrust_interaction {
-            Some(ti) => {
-                
-            }
-            None => {
+    pub fn set_thrust_rotation(&mut self, new_rotation: Vect3) {
+        self.thrust_rotation = new_rotation;
+        self.set_F_thrust();
+    }
 
-            }
-        }
+    fn set_F_thrust(&mut self) {
+        let rot_matrix = Rotation3::from_euler_angles(self.thrust_rotation.x, self.thrust_rotation.y, self.thrust_rotation.z);
+        self.F_thrust = rot_matrix * Vect3::new(self.current_thrust, 0., 0.);
     }
     
-    fn new(parent: Option<Rc<Mover>>, translation: Option<vect3>, rotation: Option<angvect3>) -> Self {
-        let translation = translation.unwrap_or(vect3::new_empty());
-        let rotation = rotation.unwrap_or(angvect3::new_empty());
+    pub fn new(parent: Option<Rc<Mover>>, translation: Option<Vect3>, rotation: Option<Vect3>) -> Self {
+        let translation = translation.unwrap_or(Vect3_new!());
+        let rotation = rotation.unwrap_or(Vect3_new!());
 
         Mover{
             parent,
-            translation,
-            rotation,
+            children: vec![],
+            translation: RefCell::new(translation),
+            rotation: RefCell::new(rotation),
 
-            velocity: vect3::new_empty(),
-            angular_velocity: angvect3::new_empty(),
-            interactions: vec![],
-            owned_interactions: vec![],
-            current_thrust: 0.,
+            velocity: RefCell::new(Vect3_new!()),
+            angular_velocity: RefCell::new(Vect3_new!()),
+            
             rest_mass: 1.,
             rel_mass: 1.,
             radius: 1.,
             health: 1.,
             is_alive: true,
+            current_thrust: 0.,
+            thrust_rotation: Vect3::new(-PI, 0., 0.),
+            F_thrust: Vect3_new!(),
             name: "unnamed".to_string()
         }
     }
 
-    fn set_rest_mass(&mut self, new_rest_mass: f64, vel_magnitude: f64) {
+    pub fn set_rest_mass(&mut self, new_rest_mass: f64, vel_magnitude: f64) {
         self.rest_mass = new_rest_mass;
         self.set_rel_mass(vel_magnitude)
     }
@@ -354,14 +273,14 @@ impl Mover {
     }
 
     #[inline(always)]
-    fn mass(&self) -> f64 {
+    pub fn mass(&self) -> f64 {
         self.rest_mass
     }
 
-    fn add_health(&mut self, addition: f64) {
+    pub fn add_health(&mut self, addition: f64) {
         self.set_health(self.health + addition);
     }
-    fn set_health(&mut self, new_health: f64) {
+    pub fn set_health(&mut self, new_health: f64) {
         self.health = new_health;
         self.on_set_health();
     }
@@ -373,18 +292,18 @@ impl Mover {
         }
     } 
 
-    fn get_moment_of_inertia(&self) -> f64 {
+    pub fn get_moment_of_inertia(&self) -> f64 {
         (2./5.) * self.mass() * self.radius.powf(2.)
     }
 
 }
 
 fn get_dist(mover1: &Rc<Mover>, mover2: &Rc<Mover>) -> f64 {
-    let center1: &vect3 = &mover1.translation;
-    let center2: &vect3 = &mover2.translation;
+    let center1 = &mover1.translation.borrow();
+    let center2 = &mover2.translation.borrow();
 
     f64::sqrt(
-        (center1[X] - center2[X]).powf(2.) + (center1[Y] - center2[Y]).powf(2.) + (center1[Z] - center2[Z]).powf(2.)
+        (center1.x - center2.x).powf(2.) + (center1.y - center2.y).powf(2.) + (center1.z - center2.z).powf(2.)
     )
 }
 
@@ -450,7 +369,11 @@ fn find_collisions(movers: &Vec<(Rc<Mover>, Deltas)>, dt: f64) {
 }
 
 fn create_movers(movers: &mut Vec<(Rc<Mover>, Deltas)>) {
+    let mut first = Mover::new(None, None, None);
+    first.set_thrust(1.);
+    first.name = "test".to_string();
 
+    movers.push((Rc::new(first), Deltas::new()));
 }
 
 struct LinAng {
@@ -459,13 +382,118 @@ struct LinAng {
 }
 
 struct Deltas {
-    forces: (vect3, vect3),
-    accelerations: (vect3, vect3),
-    new_velocities: (vect3, vect3),
-    new_positions: (vect3, angvect3)
+    forces: (Vect3, Vect3),
+    accelerations: (Vect3, Vect3),
+    new_velocities: (Vect3, Vect3),
+    new_positions: (Vect3, Vect3)
+}
+impl Deltas {
+    pub fn new() -> Self {
+        Deltas {
+            forces: (Vect3_new!(), Vect3_new!()),
+            accelerations: (Vect3_new!(), Vect3_new!()),
+            new_velocities: (Vect3_new!(), Vect3_new!()),
+            new_positions: (Vect3_new!(), Vect3_new!())
+        }
+    }
+}
+
+fn is_done(movers: &Vec<(Rc<Mover>, Deltas)>, time_elapsed: f64) -> bool {
+    movers.iter().all(|t| t.0.clone().is_alive == false) || time_elapsed > 100.
+}
+
+///(linear, torque)
+fn sum_thrust_forces_for(mover: Rc<Mover>, dt: f64) -> (Vect3, Vect3) {
+    let mut F: Matrix<f64, nalgebra::Const<3>, nalgebra::Const<1>, nalgebra::ArrayStorage<f64, 3, 1>> = mover.F_thrust;
+    let mut torque: Matrix<f64, nalgebra::Const<3>, nalgebra::Const<1>, nalgebra::ArrayStorage<f64, 3, 1>> = Vect3_new!();
+
+    for child in mover.children.iter() {
+        let mut child_forces = sum_thrust_forces_for(child.clone(), dt);
+        let child_F = &mut child_forces.0;
+        let child_torque = &mut child_forces.1;
+
+        //the torque on us is the cross product of the net linear force vector on the child's point in us and 
+        //the displacement vector of the child relative to our origin
+
+        let torque_on_us = child_F.cross(&child.translation.borrow());
+        torque += torque_on_us;
+        F += *child_F;
+    }
+
+    (F, torque)
+}
+
+fn sum_thrust_forces(movers: &mut Vec<(Rc<Mover>, Deltas)>, dt: f64) {
+    for (mover, delta) in movers.iter_mut() {
+        let sum_lin_and_torque = sum_thrust_forces_for(mover.clone(), dt);
+        delta.forces.0 += sum_lin_and_torque.0;
+        delta.forces.1 += sum_lin_and_torque.1;
+    }
+}
+
+fn calculate_gravity_forces(movers: &mut Vec<(Rc<Mover>, Deltas)>, dt: f64) {
+
+}
+
+fn sum_forces(movers: &mut Vec<(Rc<Mover>, Deltas)>, dt: f64) {
+    sum_thrust_forces(movers, dt);
+    calculate_gravity_forces(movers, dt);
+}
+
+fn move_movers(movers: &mut Vec<(Rc<Mover>, Deltas)>, dt: f64) {
+
+    for (mover, delta) in movers.iter_mut() {
+        delta.accelerations.0 = delta.forces.0 / mover.mass();
+        delta.accelerations.1 = delta.forces.1 / mover.get_moment_of_inertia();
+
+        //let mut translation = *mover.translation.borrow_mut();
+
+
+        *mover.velocity.borrow_mut() += delta.accelerations.0 * dt;
+
+        //let mut rotation = *mover.rotation.borrow_mut();
+        *mover.angular_velocity.borrow_mut() += delta.accelerations.1 * dt;
+
+        *mover.translation.borrow_mut() += *mover.velocity.borrow() * dt;
+        *mover.rotation.borrow_mut() += *mover.angular_velocity.borrow() * dt;
+    }
+}
+
+struct RunResult;
+
+fn run(initial_dt: f64, movers: &mut Vec<(Rc<Mover>, Deltas)>) -> RunResult {
+    let mut time: f64 = 0.;
+    let mut dt: f64 = initial_dt;
+
+    loop {
+        for e in movers.iter_mut() {
+            e.1 = Deltas::new();
+        }
+        sum_forces(movers, dt);
+        move_movers(movers, dt);
+
+        for mover in movers.iter() {
+            println!("mover {}, force: {}N, acceleration: {} m/s/s, velocity: {} m/s, position: {} m", mover.0.name, mover.1.forces.0, mover.1.accelerations.0, *mover.0.velocity.borrow(), *mover.0.translation.borrow());
+        }
+
+        if is_done(movers, time) {
+            break;
+        }
+        time += dt;
+    }
+
+    println!("done!");
+
+    RunResult
 }
 
 fn main() {
+
     let mut movers: Vec<(Rc<Mover>, Deltas)> = vec![];
-    println!("Hello, world!");
+    create_movers(&mut movers);
+
+    let dt: f64 = 1.;
+
+    run(dt, &mut movers);
+    
 }
