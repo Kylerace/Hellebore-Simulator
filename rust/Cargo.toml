@@ -11,14 +11,16 @@ nalgebra = "0.32.2"
 [features]
 default = ["default_print"]
 default_print = ["print_sum_forces", "print_run_deltas", "print_rotate_by", "print_set_F_thrust"]
-print_all = ["default_print", "new_angular_acceleration"]
+print_all = ["default_print", "print_new_angular_acceleration"]
 
 #default prints
 print_sum_forces = []
 print_run_deltas = []
 print_rotate_by = []
-print_flag_print = []
 print_set_F_thrust = []
 
 #expanded prints
-new_angular_acceleration = []
+print_new_angular_acceleration = []
+
+#special
+print_flag_print = []
