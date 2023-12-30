@@ -40,7 +40,7 @@ impl Mover {
     pub fn new(translation: Option<Vect3>, rotation: Option<UnitQuaternion<f64>>) -> Self {
         let translation = translation.unwrap_or(Vect3_new!());
         let _original = rotation.clone();
-        let mut rotation = rotation.unwrap_or(UnitQuaternion::<f64>::from_axis_angle(&-Vector3::<f64>::z_axis(), 0. * PI));//
+        let rotation = rotation.unwrap_or(UnitQuaternion::<f64>::from_axis_angle(&Vector3::<f64>::z_axis(), 0. * PI));//
 
         Mover{
             children: vec![],
@@ -56,7 +56,7 @@ impl Mover {
             health: 1.,
             is_alive: true,
             current_thrust: 0.,
-            thrust_rotation: UnitQuaternion::<f64>::new(Vect3::z() * -PI),
+            thrust_rotation: UnitQuaternion::<f64>::from_axis_angle(&Vector3::<f64>::z_axis(), 0. * PI),
             F_thrust: Vect3_new!(),
             name: "unnamed".to_string()
         }

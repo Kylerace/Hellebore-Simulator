@@ -35,138 +35,7 @@ macro_rules! vec_new {
 
 type MoversList = Vec<(Rc<RefCell<Mover>>, Deltas)>;
 
-pub trait ConstVector<const S: usize> {
-
-}
-
-pub trait Vector {
-    const S: usize;
-    type V: Vector;
-
-    fn new_empty() -> Self;
-    fn get(&self) -> &[f64; 3];
-    fn get_mut(&mut self) -> &mut [f64; 3];
-
-    fn add(ours: &mut f64, theirs: f64);
-
-    fn add_all(&mut self, other: f64) {
-        for field in self.get_mut() {
-            Self::add(field, other);
-        }
-    }
-
-    fn vector_add(&mut self, other: &Self::V) {
-        let theirs: &[f64;3] = other.get();
-        for (i, field) in self.get_mut().iter_mut().enumerate() {
-            Self::add(field, theirs[i]);
-        }
-    }
-
-    fn mult(ours: &mut f64, theirs: f64);
-
-    fn mult_all(&mut self, other: f64) {
-        for field in self.get_mut() {
-            Self::mult(field, other);
-        }
-    }
-
-    fn magnitude(&self) -> f64 {
-        let a = self.get();
-        let x = a.into_iter();
-        let y = x.map(|&dim| dim.powf(2.));
-        let z = y.sum();
-        f64::sqrt(
-            z
-        )
-    }
-
-
-}
-
 pub type Vect3 = Vector3<f64>;
-
-#[derive(Default)]
-pub struct vect3{arr: [f64; 3]}
-impl Vector for vect3 {
-    type V = vect3;
-    const S: usize = 3;
-
-    fn new_empty() -> Self {
-        vect3{arr:[0.,0.,0.,]}
-    }
-    
-    fn get_mut(&mut self) -> &mut [f64;3] {
-        return &mut self.arr;
-    }
-    fn get(&self) -> &[f64; 3] {
-        return &self.arr;
-    }
-
-    fn add(ours: &mut f64, theirs: f64) {
-        *ours += theirs;
-    }
-
-    fn mult(ours: &mut f64, theirs: f64) {
-        *ours *= theirs;
-    }
-    
-
-}
-impl Clone for vect3 {
-    fn clone(&self) -> Self {
-        return vect3{arr: self.arr.clone()}
-    }
-}
-impl vect3 {
-    fn get_dist(a: vect3, b: vect3) -> f64 {
-
-        f64::sqrt(
-            (a[X] - b[X]).powf(2.) + (a[Y] - b[Y]).powf(2.) + (a[Z] - b[Z]).powf(2.)
-        )
-    }
-}
-/*
-impl Index<usize> for vect3 {
-    type Output = f64;
-
-    fn index(&self, index: usize) -> &Self::Output {
-        return &self.arr[index];
-    }
-}*/
-vec_index!(vect3);
-
-
-
-#[derive(Default)]
-pub struct angvect3{arr: [f64; 3]}
-impl Vector for angvect3 {
-    type V = angvect3;
-    const S: usize = 3;
-
-    fn new_empty() -> Self {
-        angvect3{arr:[0.,0.,0.,]}
-    }
-    fn get_mut(&mut self) -> &mut [f64;3] {
-        return &mut self.arr;
-    }
-    fn get(&self) -> &[f64; 3] {
-        return &self.arr;
-    }
-    fn add(ours: &mut f64, theirs: f64) {
-        *ours = f64::abs(*ours + theirs) % 360.0;
-    }//TODO: this is very wrong for anything other than current angular position
-
-    fn mult(ours: &mut f64, theirs: f64) {
-        *ours = f64::abs(*ours * theirs) % 360.0;
-    }
-}
-impl Clone for angvect3 {
-    fn clone(&self) -> Self {
-        return angvect3{arr: self.arr.clone()}
-    }
-}
-vec_index!(angvect3);
-
 
 fn get_dist(mover1: &Mover, mover2: &Mover) -> f64 {
     let center1 = mover1.translation.borrow();
@@ -183,17 +52,6 @@ enum Colliding {
     No
 }
 
-fn translate_FD(mut base: vect3, dt: f64, mut b_d_dt: vect3, mut b_d2_dt2: Option<vect3>) -> vect3 {
-    let mut b_d2_dt2 = b_d2_dt2.unwrap_or(vect3::new_empty());
-
-    b_d_dt.mult_all(dt);
-    base.vector_add(&b_d_dt);
-
-    b_d2_dt2.mult_all(dt.powf(2.));
-    base.vector_add(&b_d2_dt2);
-
-    base
-}
 
 fn check_collision(mover1: (Rc<RefCell<Mover>>, &Deltas), mover2: (Rc<RefCell<Mover>>, &Deltas), dt: f64) -> Colliding {
     let mover_1 = mover1.0.borrow();
@@ -227,40 +85,53 @@ fn check_collision(mover1: (Rc<RefCell<Mover>>, &Deltas), mover2: (Rc<RefCell<Mo
     */
 }
 
-fn find_collisions(movers: &MoversList, dt: f64) {
+pub type CollisionList = Vec<(Rc<RefCell<Mover>>, Rc<RefCell<Mover>>)>;
+
+fn find_collisions(movers: &MoversList, dt: f64) -> CollisionList {
+    let mut collisions: CollisionList = vec![];
     for i in 0..movers.len() {
-        for j in i..movers.len() {
+        for j in i+1..movers.len() {
+            let first = movers[i].0.clone();
+            let second = movers[j].0.clone();
+
             let collides = check_collision((movers[i].0.clone(), &movers[i].1), (movers[j].0.clone(), &movers[i].1), dt);
+
             match collides {
                 Colliding::Now => {
-                    println!("collision!")
+                    collisions.push((first.clone(), second.clone()));
                 }
                 _ => continue
             }
         }
     }
+    collisions
 }
 
-
-
-struct LinAng {
-    lin: vect3,
-    ang: angvect3
+fn handle_collisions(colliders: CollisionList, time: f64, dt: &f64) {
+    for collision in colliders.iter() {
+        flag_print!("print_handle_collisions", "mover: {} (at {} radius = {}) and mover: {} (at {} radius = {}) collided at time = {}", 
+            collision.0.borrow().name, stringify_vector!(collision.0.borrow().translation.borrow(), 3), collision.0.borrow().radius, 
+            collision.1.borrow().name, stringify_vector!(collision.1.borrow().translation.borrow(), 3), collision.1.borrow().radius, time + *dt);
+    }
 }
 
 struct Deltas {
     forces: (Vect3, Vect3),
     accelerations: (Vect3, Vect3),
-    new_velocities: (Vect3, Vect3),
-    new_positions: (Vect3, Vect3)
+    initial_velocities: (Vect3, Vect3),
+    initial_positions: (Vect3, Vect3),
+    best_velocities: (Vect3, Vect3),
+    best_positions: (Vect3, Vect3),
 }
 impl Deltas {
     pub fn new() -> Self {
         Deltas {
             forces: (Vect3_new!(), Vect3_new!()),
             accelerations: (Vect3_new!(), Vect3_new!()),
-            new_velocities: (Vect3_new!(), Vect3_new!()),
-            new_positions: (Vect3_new!(), Vect3_new!())
+            initial_velocities: (Vect3_new!(), Vect3_new!()),
+            initial_positions: (Vect3_new!(), Vect3_new!()),
+            best_velocities: (Vect3_new!(), Vect3_new!()),
+            best_positions: (Vect3_new!(), Vect3_new!())
         }
     }
 }
@@ -334,7 +205,11 @@ fn sum_forces(movers: &mut MoversList, dt: f64) {
     calculate_gravity_forces(movers, dt);
 }
 
-fn move_movers(movers: &mut MoversList, dt: f64) {
+/**
+ * before factoring in any constraints like collisions which may happen between now and now + dt, set the 
+ * initial velocity and position of each mover's associated Deltas struct to what they should be
+ */
+fn set_initial_vectors(movers: &mut MoversList, dt: f64) {
 
     for (m, delta) in movers.iter_mut() {
         let mover = m.borrow();
@@ -378,6 +253,8 @@ fn move_movers(movers: &mut MoversList, dt: f64) {
 
 struct RunResult;
 
+
+
 fn run(initial_dt: f64, min_tick_time: std::time::Duration, movers: &mut MoversList) -> RunResult {
     let mut time: f64 = 0.;
     let mut dt: f64 = initial_dt;
@@ -389,66 +266,37 @@ fn run(initial_dt: f64, min_tick_time: std::time::Duration, movers: &mut MoversL
             e.1 = Deltas::new();
         }
         sum_forces(movers, dt);
-        move_movers(movers, dt);
+        set_initial_vectors(movers, dt);
+
+        handle_collisions(find_collisions(movers, dt), time, &dt);
 
         for m in movers.iter() {
             //let mover_1_force = format!("[{}, {}, {}]", mover.1.forces.0.x, mover.1.forces.0.y, mover.1.forces.0.z);
 
             let mover = m.0.borrow();
 
-            #[cfg(feature = "print_run_deltas")]
+            #[cfg(feature = "print_run_deltas_any")] 
             {
                 println!("run deltas:");
                 println!("\tmover: {}", mover.name);
-
-               // println!("\tforce: {} N", stringify_vector!(m.1.forces.0, 4));
-                println!("\ttorque: {} Nm", stringify_vector!(m.1.forces.1, 4));
-
-                //println!("\tacceleration: {} m/s/s", stringify_vector!(m.1.accelerations.0, 4));
-                println!("\tangular acceleration: {} rad/s/s:", stringify_vector!(m.1.accelerations.1, 4));
-
-                //println!("\tvelocity: {} m/s", stringify_vector!(*mover.velocity.borrow(), 4));
-                println!("\tangular velocity: {} rad/s", stringify_vector!(*mover.angular_velocity.borrow(), 4));
-
-                //println!("\tposition: {} m", stringify_vector!(*mover.translation.borrow(), 4));
-                println!("\torientation: {} rad", *mover.rotation.borrow());
-
-                //println!("\ttime/dt: {}/{} s", time, dt);
+                println!("\ttime/dt: {}/{} s", time, dt);
             }
 
-            /*
-            flag_print!("print_run_deltas",
-            "
-            mover: {}, 
-            force: {} N, 
-            torque: {} Nm,
-            acceleration: {} m/s/s, 
-            angular acceleration: {} rad/s/s,
-            velocity: {} m/s, 
-            angular velocity: {} rad/s,
-            position: {} m, 
-            orientation: {} rad,
-            time/dt: {}/{} s",
+            #[cfg(feature = "print_run_deltas_linear")]
+            {
+                println!("\tforce: {} N", stringify_vector!(m.1.forces.0, 4));
+                println!("\tacceleration: {} m/s/s", stringify_vector!(m.1.accelerations.0, 4));
+                println!("\tvelocity: {} m/s", stringify_vector!(*mover.velocity.borrow(), 4));
+                println!("\tposition: {} m", stringify_vector!(*mover.translation.borrow(), 4));
+            }
 
-            mover.name, 
-            stringify_vector!(m.1.forces.0, 4), 
-            stringify_vector!(m.1.forces.1, 4),
-
-            stringify_vector!(m.1.accelerations.0, 4), 
-            stringify_vector!(m.1.accelerations.1, 4),
-            
-            stringify_vector!(*mover.velocity.borrow(), 4), 
-            stringify_vector!(*mover.angular_velocity.borrow(), 4),
-
-            stringify_vector!(*mover.translation.borrow(), 4),
-            *mover.rotation.borrow(),
-
-            time,
-            dt,
-            );
-            */
-            
-            //println!("mover {}, force: {}N, acceleration: {} m/s/s, velocity: {} m/s, position: {} m", mover.0.name, mover.1.forces.0, mover.1.accelerations.0, *mover.0.velocity.borrow(), *mover.0.translation.borrow());
+            #[cfg(feature = "print_run_deltas_angular")]
+            {
+                println!("\ttorque: {} Nm", stringify_vector!(m.1.forces.1, 4));
+                println!("\tangular acceleration: {} rad/s/s:", stringify_vector!(m.1.accelerations.1, 4));
+                println!("\tangular velocity: {} rad/s", stringify_vector!(*mover.angular_velocity.borrow(), 4));
+                println!("\torientation: {} rad", *mover.rotation.borrow());
+            }
         }
 
         if is_done(movers, time) {
@@ -472,10 +320,12 @@ fn run(initial_dt: f64, min_tick_time: std::time::Duration, movers: &mut MoversL
     RunResult
 }
 
+pub struct Photon {
 
+}
 
 fn create_movers(movers: &mut MoversList) {
-    let mut first = RefCell::new(Mover::new(None, None));
+    let mut first = RefCell::new(Mover::new(Some(Vect3_new!(0.,0.,0.)), None));
     /*
     first.set_thrust(1.);
     first.rotate_thrust(UnitQuaternion::from_axis_angle(&Vect3::y_axis(), 0.5*PI));
@@ -485,26 +335,26 @@ fn create_movers(movers: &mut MoversList) {
     */
 
     //first.set_rest_mass(10., 0.);
-    first.borrow_mut().name = "parent".to_string();
+    first.borrow_mut().name = "first".to_string();
+    first.borrow_mut().radius = 5.;
 
-    let mut thruster = Mover::new(Some(Vect3_new!(0., 0.25, 0.)), None);
-    thruster.name = "thruster".to_string();
-    thruster.set_thrust(1.);
-    
-    //thruster.set_rest_mass(0., 0.);
-    
-    //push_end_print!("thruster translation {} rotation: {}, F_thrust: {}", thruster.translation.borrow(), thruster.rotation.borrow(), thruster.F_thrust);
+    first.borrow_mut().set_thrust(1.);
 
-    let thruster_mass = thruster.mass();
+    push_end_print!("first's F vector: {}, thrust rotation: {}, overall rotation: {}, thrust rotation rotating [1,0,0]: {}", 
+        stringify_vector!(first.borrow().F_thrust, 3), first.borrow().thrust_rotation, first.borrow().rotation.borrow(), first.borrow().thrust_rotation.transform_vector(&Vect3_new!(1.,0.,0.)));
 
-    let _ = first.borrow_mut().add_child(Rc::new(RefCell::new(thruster)));
+    let mut second = RefCell::new(Mover::new(
+        Some(Vect3_new!(10.,0.,0.)), 
+        Some(UnitQuaternion::from_axis_angle(&Vect3::z_axis(), PI)))
+    );
+    second.borrow_mut().name = "second".to_string();
+    second.borrow_mut().set_thrust(1.);
+    second.borrow_mut().radius = 5.;
 
-    push_end_print!("total parent mass: {} Kg, parent without child: {} Kg, child mass: {} Kg", first.borrow().mass(), first.borrow().mass() - thruster_mass, thruster_mass);
-    push_end_print!("env args: {:?}", std::env::args().nth(1));
-
-    let mut first_rc = Rc::new(first);
+    let first_rc = Rc::new(first);
 
     movers.push((first_rc, Deltas::new()));
+    movers.push((Rc::new(second), Deltas::new()));
 }
 
 fn main() {
