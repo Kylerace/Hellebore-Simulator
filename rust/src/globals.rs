@@ -1,4 +1,8 @@
+use std::{cell::RefCell, rc::Rc};
 
+use nalgebra::Vector3;
+
+use crate::{Mover, Deltas, mover::{Actor, ActionType, ActorType}};
 
 pub const X: usize = 0;
 pub const Y: usize = 1;
@@ -19,6 +23,11 @@ pub static C_V: f64 = DEFAULT_SPEED_OF_LIGHT;
 pub static mut end_prints: Vec<String> = vec![];
 pub static mut outs_to_use: Vec<String> = vec![];
 
+pub type ActorRepresentation = Rc<RefCell<dyn Actor>>;
+pub type MoverTuple = (Rc<RefCell<Mover>>, Deltas, Option<ActorRepresentation>);
+pub type MoversList = Vec<MoverTuple>;
+
+pub type Vect3 = Vector3<f64>;
 
 macro_rules! vec_index {
     ($type:ty) => {
