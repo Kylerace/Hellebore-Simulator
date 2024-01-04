@@ -8,8 +8,8 @@ going at low fractions of the speed of light and with a randomly changing trajec
 Making this repo at this unfinished stage so I can work on my laptop and my desktop.
 
 # To Do
- * simulate newtonian mechanics <- I am here
- * make a framework for agents to take actions using their assigned ships.
+ * simulate newtonian mechanics: should be done
+ * make a framework for agents to take actions using their assigned ships <- I am here
  * simulate special relativity excluding time dilation and light lag per frame of reference
  * simulate time dilation and light lag per frame of reference
  * make preprogrammed agents for the Hellebore and the chasing ship
