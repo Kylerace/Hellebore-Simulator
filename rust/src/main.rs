@@ -114,7 +114,7 @@ fn handle_collisions(colliders: CollisionList, time: f64, dt: f64) {
 }
 
 //TODO: orientation should be represented with a quaternion
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Deltas {
     pub forces: (Vect3, Vect3),
     pub accelerations: (Vect3, Vect3),
@@ -295,6 +295,8 @@ fn poll_actors(movers: &mut MoversList, time: f64, dt: f64) {
         movers.push(new_tuple);
     }
 
+    //flag_print!("poll_actors", )
+
 }
 
 fn run(initial_dt: f64, min_tick_time: std::time::Duration, movers: &mut MoversList) -> RunResult {
@@ -401,9 +403,18 @@ fn create_movers(movers: &mut MoversList) {
 
     //first.set_rest_mass(10., 0.);
     first.borrow_mut().name = "first".to_string();
+    first.borrow_mut().team = "red".to_string();
     first.borrow_mut().radius = 5.;
 
     first.borrow_mut().set_thrust(1.);
+
+    first.borrow_mut().available_actions = Rc::new(vec![
+        ActionType::ThrustAction(
+            ThrustAction { rotation: None, new_thrust_force: None, new_thrust_bounds: Interval::<f64>::new(Some(0.), Some(100.)) }
+        )
+    ]);
+
+    let first_ai = SimpleMissileActor{};
 
     push_end_print!("first's F vector: {}, thrust rotation: {}, overall rotation: {}, thrust rotation rotating [1,0,0]: {}", 
         stringify_vector!(first.borrow().F_thrust, 3), first.borrow().thrust_rotation, first.borrow().rotation.borrow(), first.borrow().thrust_rotation.transform_vector(&Vect3_new!(1.,0.,0.)));
@@ -413,13 +424,20 @@ fn create_movers(movers: &mut MoversList) {
         Some(UnitQuaternion::from_axis_angle(&Vect3::z_axis(), PI)))
     );
     second.borrow_mut().name = "second".to_string();
-    second.borrow_mut().set_thrust(1.);
+    second.borrow_mut().team = "compact".to_string();
+    //second.borrow_mut().set_thrust(1.);
     second.borrow_mut().radius = 5.;
 
     let first_rc = Rc::new(first);
 
-    movers.push( (first_rc, Deltas::new(), None) );
+    movers.push( (first_rc, Deltas::new(), Some(Rc::new(RefCell::new(first_ai)))) );
     movers.push( (Rc::new(second), Deltas::new(), None) );
+}
+
+fn test_shit() {
+    let _x = Vect3_new!(1.,1.,0.);
+    let _quat = UnitQuaternion::<f64>::from_axis_angle(&Vect3::z_axis(), PI);
+    //push_end_print!("quat {} * x {} = {}", quat, x, quat * x);
 }
 
 fn main() {
@@ -432,6 +450,8 @@ fn main() {
 
     run(dt, min_tick_time, &mut movers);
     
+    test_shit();
+
     unsafe {
         if !end_prints.is_empty() {
             println!("\n___END PRINTS___\n");

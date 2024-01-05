@@ -11,7 +11,8 @@ num = "0.4"
 
 [features]
 default = ["default_print"]
-default_print = ["print_sum_forces", "print_run_deltas_all", "print_rotate_by", "print_set_F_thrust", "print_handle_collisions", "print_SimpleMissileActor"]
+default_print = ["print_sum_forces", "print_run_deltas_all", "print_rotate_by", "print_set_F_thrust", "print_handle_collisions", "print_SimpleMissileActor",
+    "print_ThrustAction_perform_on"]
 print_all = ["default_print", "print_new_angular_acceleration"]
 
 #default prints
@@ -25,6 +26,7 @@ print_rotate_by = []
 print_set_F_thrust = []
 print_handle_collisions = []
 print_SimpleMissileActor = []
+print_ThrustAction_perform_on = []
 
 #expanded prints
 print_new_angular_acceleration = []

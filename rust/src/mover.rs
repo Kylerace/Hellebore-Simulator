@@ -15,14 +15,14 @@ pub trait Space {
     fn contains(&self, point: &Self::ElementType) -> bool;
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct Interval<T: Bounded + PartialOrd> {
     pub low: T,
     pub high: T
 }
 
 impl<T: Bounded + PartialOrd> Interval<T> {
-    fn new(low: Option<T>, high: Option<T>) -> Self {
+    pub fn new(low: Option<T>, high: Option<T>) -> Self {
         let use_low = match low {
             Some(l) => {
                 l
@@ -90,13 +90,13 @@ pub trait Action {
 /**
  * so that ThrustAction can be used to set thrust_rotation directly or to rotate it
  */
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub enum ThrustActionRotationChoice {
     RotateBy(UnitQuaternion<f64>),
     SetRotation(UnitQuaternion<f64>)
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct ThrustAction {
     ///rotation we apply to thrust_rotation
     pub rotation: Option<ThrustActionRotationChoice>, //TODO: figure out how to constrain rotations
@@ -120,19 +120,43 @@ impl Action for ThrustAction {
     fn perform_on(&self, mover: Rc<RefCell<Mover>>) -> Vec<Mover> {
         
         //let bmover = mover.borrow_mut();
+        #[cfg(feature = "print_ThrustAction_perform_on")]
+        let mut data: Vec<String> = vec![];
+
         {
             if let Some(t) = self.new_thrust_force {
+                #[cfg(feature = "print_ThrustAction_perform_on")]
+                data.push(format!("current_thrust changed from {} to {}", mover.borrow().current_thrust, t));
+
                 mover.borrow_mut().set_thrust(t);
             }
         }
         match self.rotation {
             Some(ThrustActionRotationChoice::RotateBy(r)) => {
+                #[cfg(feature = "print_ThrustAction_perform_on")]
+                let old = mover.borrow().thrust_rotation.clone();
+
                 mover.borrow_mut().rotate_thrust(r);
+
+                #[cfg(feature = "print_ThrustAction_perform_on")]
+                data.push(format!("thrust_rotation rotated by {} from {} to {}", r, old, mover.borrow().thrust_rotation.clone()));
             }
             Some(ThrustActionRotationChoice::SetRotation(r)) => {
+                #[cfg(feature = "print_ThrustAction_perform_on")]
+                data.push(format!("thrust_rotation changed from {} to {}", mover.borrow().thrust_rotation, r));
+
                 mover.borrow_mut().set_thrust_rotation(r);
             }
             None => {}
+        }
+
+        #[cfg(feature = "print_ThrustAction_perform_on")]
+        {
+            let mut concat_data = "".to_string();
+            for data_str in data.iter() {
+                concat_data.push_str(&format!(" {},", data_str));
+            }
+            println!("\tThrustAction::perform_on({}) did:{}", mover.borrow().name, concat_data);
         }
 
         vec![]
@@ -152,7 +176,7 @@ impl Space for ThrustAction {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct TestAction {
     pub x: usize
 }
@@ -173,7 +197,7 @@ impl Action for TestAction {
 //    TestAction(TestAction)
 //}
 macro_rules! impl_TraitEnumToBox{($enum_name: ident, $trait_name: ident, $($enumvariant: ident($foo: ty),)*) => {
-    //#[derive(Clone)]
+    #[derive(Clone, Debug)]
     pub enum $enum_name {
         $($enumvariant($foo),)*
     }
@@ -223,6 +247,7 @@ pub trait Actor {
     fn decide<'a, 'b: 'a>(&'a mut self, observation: &ObservationSpace, actions: &Vec<(Rc<RefCell<Mover>>, Rc<Vec<ActionType>>)>) -> Vec<(Rc<RefCell<Mover>>, Vec<ActionType>)>;
 }
 
+#[derive(Clone, Debug)]
 pub struct SimpleMissileActor {
 
 }
@@ -236,6 +261,8 @@ impl_TraitEnumToBox!(
 impl Actor for SimpleMissileActor {
     fn decide<'a, 'b: 'a>(&'a mut self, observation: &ObservationSpace, actions: &Vec<(Rc<RefCell<Mover>>, Rc<Vec<ActionType>>)>) -> Vec<(Rc<RefCell<Mover>>, Vec<ActionType>)> {
         let mut output: Vec<(Rc<RefCell<Mover>>, Vec<ActionType>)> = vec![];
+
+        //flag_print!("print_SimpleMissileActor", "ZERO, action len: {}", actions.len());
 
         let mut thrust_action: Option<(Rc<RefCell<Mover>>, ThrustAction)> = None;
         'outer: for mover_actions in actions.iter() {
@@ -251,10 +278,12 @@ impl Actor for SimpleMissileActor {
             return output;
         }
 
+        //flag_print!("print_SimpleMissileActor", "ONE");
+
         let our_team = observation.ego.borrow().team.clone();
         let mut enemies: Vec<&MoverTuple> = vec![];
         for mover in observation.all_movers {
-            if mover.0.borrow().team == our_team {
+            if mover.0.borrow().team != our_team {
                 enemies.push(mover);
             }
         }
@@ -285,6 +314,8 @@ impl Actor for SimpleMissileActor {
             return output;
         }
 
+        //flag_print!("print_SimpleMissileActor", "THREE");
+        
         //im not entirely sure how to make this work for constrained thrust thats only in child movers
         //for this though i think we can just find an ideal velocity vector and rotate our thrust such that it will eventually cancel out the difference between 
         //mover's current velocity and the ideal velocity and thus hit the target 
@@ -297,9 +328,9 @@ impl Actor for SimpleMissileActor {
         let their_translation = closest_enemy_ref.translation.borrow();
 
         let pos_delta = Vector3::<f64>::new(our_translation.x - their_translation.x, our_translation.y - their_translation.y, our_translation.z - their_translation.z);
-        let to_closest = UnitQuaternion::face_towards(&pos_delta, &Vector3::z());
+        let to_closest = UnitQuaternion::face_towards(&pos_delta, &Vector3::x());
 
-        let new_thrust_rotation = observation.ego.borrow().thrust_rotation.inverse() * to_closest;
+        let new_thrust_rotation = to_closest;//observation.ego.borrow().thrust_rotation.inverse() * to_closest;
 
         let mut return_thrust_action = thrust_action.as_ref().unwrap().1.clone();
         return_thrust_action.rotation = Some(ThrustActionRotationChoice::SetRotation(new_thrust_rotation));
@@ -308,11 +339,12 @@ impl Actor for SimpleMissileActor {
         output.push((thrust_action.unwrap().0, vec![ActionType::ThrustAction(return_thrust_action)]));
 
         flag_print!("print_SimpleMissileActor", "SimpleMissileActor {} at {}, closest enemy: {} at {}, angle from us to them is {}, we will now set thrust_rotation to {}", 
-            observation.ego.borrow().name, stringify_vector!(our_translation), closest_enemy_ref.name, stringify_vector!(their_translation), to_closest, new_thrust_rotation);
+            observation.ego.borrow().name, stringify_vector!(our_translation, 3), closest_enemy_ref.name, stringify_vector!(their_translation, 3), to_closest, new_thrust_rotation);
         return output;
     }
 }
 
+#[derive(Debug)]
 pub struct Mover {
     pub children: Vec<Rc<RefCell<Mover>>>,
 
@@ -485,6 +517,7 @@ impl Mover {
 
     fn get_recursive_children(ego: Rc<RefCell<Mover>>) -> Vec<Rc<RefCell<Mover>>> {
         let mut children = ego.borrow().children.clone();
+        children.push(ego.clone());
         for child in ego.borrow().children.iter() {
             let x = &Mover::get_recursive_children(child.clone());
             if x.is_empty() {
