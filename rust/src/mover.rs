@@ -327,10 +327,74 @@ impl Actor for SimpleMissileActor {
         let closest_enemy_ref = closest_enemy.as_ref().unwrap().borrow();
         let their_translation = closest_enemy_ref.translation.borrow();
 
-        let pos_delta = Vector3::<f64>::new(our_translation.x - their_translation.x, our_translation.y - their_translation.y, our_translation.z - their_translation.z);
-        let to_closest = UnitQuaternion::face_towards(&pos_delta, &Vector3::x());
+        let pos_delta = *their_translation - *our_translation;//Vector3::<f64>::new(our_translation.x - their_translation.x, our_translation.y - their_translation.y, our_translation.z - their_translation.z);
 
-        let new_thrust_rotation = to_closest;//observation.ego.borrow().thrust_rotation.inverse() * to_closest;
+        let normed_pos_delta = pos_delta.clone().normalize();
+        let missile_rotated_x = _our_translation.rotation.borrow().transform_vector(&Vect3::x()).normalize();
+        //set rotation to the quaternion that rotates missile_rotated_x to normed_pos_delta
+
+        let direction_to_enemy = UnitQuaternion::rotation_between(&missile_rotated_x, &normed_pos_delta);
+        //let unwrapped = direction_to_enemy.unwrap();
+        //flag_print!("print_SimpleMissileActor", "  rotation_between(missile_rotated_x {}, normed_pos_delta {}) = {}, that transforming [1,0,0] = {}", 
+        //    stringify_vector!(missile_rotated_x), stringify_vector!(normed_pos_delta), unwrapped, stringify_vector!(unwrapped.transform_vector(&Vect3::x())));
+        
+
+        let up_dir = &Vector3::z();
+
+        let mut to_closest = UnitQuaternion::look_at_rh(&pos_delta, up_dir);
+        to_closest.renormalize();
+
+        let rot_matrix = Rotation3::look_at_rh(&pos_delta, up_dir);
+
+        let new_thrust_rotation = match direction_to_enemy {//observation.ego.borrow().thrust_rotation.inverse() * to_closest;
+            Some(q) => {
+                q
+            },
+            None => {//just invert thrust_rotation
+
+                //println!("AAAAAAAAAAAAAAAAAAAA inverse is {}", observation.ego.borrow().thrust_rotation.inverse());
+                //observation.ego.borrow().thrust_rotation.inverse()
+
+                let mut nonzero_value_main: Option<f64> = None;
+                let mut other_val1 = 0.;
+                let mut other_val2 = 0.;
+                
+                for (i, value)  in missile_rotated_x.iter().enumerate() {//this is GARBAGE BRO
+                    if *value != 0. {
+                        nonzero_value_main = Some(*value);
+                        match i {
+                            0 => {
+                                other_val1 = missile_rotated_x[1];
+                                other_val2 = missile_rotated_x[2];
+                                break;
+                            },
+                            1 => {
+                                other_val2 = missile_rotated_x[2];
+                                break;
+                            },
+                            _ => {}
+                        }
+                    } else {
+                        match i {
+                            0 => {
+                                other_val1 = missile_rotated_x[0];
+                            },
+                            1 => {
+                                other_val2 = missile_rotated_x[1];
+                            },
+                            _ => {}
+                        }
+                    }
+                }
+
+                let new_axis = Vect3_new!(1.,1., -(other_val1 + other_val2)/nonzero_value_main.unwrap());
+                let new_rotation = UnitQuaternion::from_axis_angle(&Unit::<Vect3>::new_normalize(new_axis), PI);
+
+                println!("AAAAAAAAAAAAA rotated is {}, axis is {}", new_rotation, new_axis);
+
+                new_rotation
+            }
+        };
 
         let mut return_thrust_action = thrust_action.as_ref().unwrap().1.clone();
         return_thrust_action.rotation = Some(ThrustActionRotationChoice::SetRotation(new_thrust_rotation));
@@ -338,8 +402,8 @@ impl Actor for SimpleMissileActor {
 
         output.push((thrust_action.unwrap().0, vec![ActionType::ThrustAction(return_thrust_action)]));
 
-        flag_print!("print_SimpleMissileActor", "SimpleMissileActor {} at {}, closest enemy: {} at {}, angle from us to them is {}, we will now set thrust_rotation to {}", 
-            observation.ego.borrow().name, stringify_vector!(our_translation, 3), closest_enemy_ref.name, stringify_vector!(their_translation, 3), to_closest, new_thrust_rotation);
+        flag_print!("print_SimpleMissileActor", "SimpleMissileActor {} at {}, closest enemy: {} at {}, pos delta {}\n\tangle from us to them is {}\n\trotation matrix is {}", 
+            observation.ego.borrow().name, stringify_vector!(our_translation, 3), closest_enemy_ref.name, stringify_vector!(their_translation, 3), stringify_vector!(pos_delta, 3), new_thrust_rotation, new_thrust_rotation.to_rotation_matrix());
         return output;
     }
 }

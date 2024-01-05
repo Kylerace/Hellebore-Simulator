@@ -16,6 +16,7 @@ pub const DEFAULT_COSMIC_SPEED_LIMIT: f64 = 299_792_458.0;
 pub const DEFAULT_SPEED_OF_LIGHT: f64 = DEFAULT_COSMIC_SPEED_LIMIT;
 pub const PI: f64 = std::f64::consts::PI;
 pub const MAX_DURATION: f64 = 5.;
+pub const STARTING_DT: f64 = 10./1000.;
 
 pub static C_S_L: f64 = DEFAULT_COSMIC_SPEED_LIMIT;
 pub static C_V: f64 = DEFAULT_SPEED_OF_LIGHT;

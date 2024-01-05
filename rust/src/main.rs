@@ -107,7 +107,7 @@ fn find_collisions(movers: &MoversList, time: f64, dt: f64) {
 
 fn handle_collisions(colliders: CollisionList, time: f64, dt: f64) {
     for collision in colliders.iter() {
-        flag_print!("print_handle_collisions", "mover: {} (at {} radius = {}) and mover: {} (at {} radius = {}) collided at time = {}", 
+        flag_print!("print_handle_collisions", "COLLISION mover: {} (at {} radius = {}) and mover: {} (at {} radius = {}) collided at time = {}", 
             collision.0.borrow().name, stringify_vector!(collision.0.borrow().translation.borrow(), 3), collision.0.borrow().radius, 
             collision.1.borrow().name, stringify_vector!(collision.1.borrow().translation.borrow(), 3), collision.1.borrow().radius, time + dt);
     }
@@ -178,8 +178,8 @@ fn sum_thrust_forces_for(mover: &Mover, dt: f64) -> (Vect3, Vect3) {
             child_contributions = format!("{}\n\t{}", child_contributions, cs);
         }
 
-        println!("sum_thrust_forces_for({}, {}): \n\tF_thrust: {}, orientation: {}, F: {}, torque: {},{}", 
-            mover.name, dt, stringify_vector!(mover.F_thrust), *mover.rotation.borrow(), stringify_vector!(F, 3), stringify_vector!(torque, 3),
+        println!("sum_thrust_forces_for({}, {}): \n\tF_thrust: {}, orientation: {}, thrust_rotation: {}, rotated F: {}, torque: {},{}", 
+            mover.name, dt, stringify_vector!(mover.F_thrust, 3), *mover.rotation.borrow(), stringify_vector!(mover.thrust_rotation.transform_vector(&Vect3::x()), 3), stringify_vector!(F, 3), stringify_vector!(torque, 3),
             child_contributions);
     }
     //flag_print!("print_sum_forces", "sum_thrust_forces_for({}, {}): \n\tF_thrust: {}, orientation: {}, F: {}, torque: {}", 
@@ -406,7 +406,7 @@ fn create_movers(movers: &mut MoversList) {
     first.borrow_mut().team = "red".to_string();
     first.borrow_mut().radius = 5.;
 
-    first.borrow_mut().set_thrust(1.);
+    //first.borrow_mut().set_thrust(1.);
 
     first.borrow_mut().available_actions = Rc::new(vec![
         ActionType::ThrustAction(
@@ -419,8 +419,8 @@ fn create_movers(movers: &mut MoversList) {
     push_end_print!("first's F vector: {}, thrust rotation: {}, overall rotation: {}, thrust rotation rotating [1,0,0]: {}", 
         stringify_vector!(first.borrow().F_thrust, 3), first.borrow().thrust_rotation, first.borrow().rotation.borrow(), first.borrow().thrust_rotation.transform_vector(&Vect3_new!(1.,0.,0.)));
 
-    let mut second = RefCell::new(Mover::new(
-        Some(Vect3_new!(10.,0.,0.)), 
+    let second = RefCell::new(Mover::new(
+        Some(Vect3_new!(100.,1050.,0.)), 
         Some(UnitQuaternion::from_axis_angle(&Vect3::z_axis(), PI)))
     );
     second.borrow_mut().name = "second".to_string();
@@ -435,9 +435,9 @@ fn create_movers(movers: &mut MoversList) {
 }
 
 fn test_shit() {
-    let _x = Vect3_new!(1.,1.,0.);
-    let _quat = UnitQuaternion::<f64>::from_axis_angle(&Vect3::z_axis(), PI);
-    //push_end_print!("quat {} * x {} = {}", quat, x, quat * x);
+    let _x = Vect3_new!(1.,0.,0.);
+    let _quat = UnitQuaternion::<f64>::from_axis_angle(&Vect3::z_axis(), 0.5*PI);
+    push_end_print!("quat {} (or rotation matrix {}) \n\tROTATES {} \n\tINTO {}", _quat, _quat.to_rotation_matrix(), stringify_vector!(_x,3), stringify_vector!(_quat * _x,3));
 }
 
 fn main() {
@@ -445,7 +445,7 @@ fn main() {
     let mut movers: MoversList = vec![];
     create_movers(&mut movers);
 
-    let dt: f64 = 1.;
+    let dt: f64 = STARTING_DT;
     let min_tick_time = time::Duration::from_millis((1000. / 60.) as u64);
 
     run(dt, min_tick_time, &mut movers);
