@@ -1,7 +1,7 @@
 use std::{rc::Rc, cell::RefCell};
 use nalgebra::UnitQuaternion;
 
-use crate::{Mover, mover::{Interval, Space}};
+use crate::{Mover, Interval, Space};
 
 pub trait Action {
     /// create a new mover by returning one in the vector, otherwise just affect mover 

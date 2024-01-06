@@ -4,7 +4,7 @@ use std::{rc::Rc, cell::RefCell};
 
 use nalgebra::{UnitQuaternion, Vector3, Rotation3, Unit};
 
-use crate::{Vect3, mover::{ObservationSpace, Mover}, globals::{MoverTuple, PI}, action::{ActionType, ThrustAction, ThrustActionRotationChoice}};
+use crate::{Vect3, mover::{Mover}, ObservationSpace, globals::{MoverTuple, PI}, action::{ActionType, ThrustAction, ThrustActionRotationChoice}};
 
 
 pub trait Actor { 
