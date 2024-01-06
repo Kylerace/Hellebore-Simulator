@@ -2,7 +2,7 @@ use std::{cell::RefCell, rc::Rc};
 
 use nalgebra::Vector3;
 
-use crate::{Mover, Deltas, mover::{Actor, ActionType, ActorType}};
+use crate::{Mover, Deltas, ActionType, actor::Actor};
 
 pub const X: usize = 0;
 pub const Y: usize = 1;
@@ -17,6 +17,8 @@ pub const DEFAULT_SPEED_OF_LIGHT: f64 = DEFAULT_COSMIC_SPEED_LIMIT;
 pub const PI: f64 = std::f64::consts::PI;
 pub const MAX_DURATION: f64 = 5.;
 pub const STARTING_DT: f64 = 10./1000.;
+
+pub const REMOVE_HIT_MOVERS_BEYOND_X_JOULES: f64 = 100.;
 
 pub static C_S_L: f64 = DEFAULT_COSMIC_SPEED_LIMIT;
 pub static C_V: f64 = DEFAULT_SPEED_OF_LIGHT;
@@ -89,3 +91,17 @@ macro_rules! push_end_print {
         }
     };
 }
+
+macro_rules! impl_TraitEnumToBox{($enum_name: ident, $trait_name: ident, $($enumvariant: ident($foo: ty),)*) => {
+    #[derive(Clone, Debug)]
+    pub enum $enum_name {
+        $($enumvariant($foo),)*
+    }
+    impl $enum_name {
+        pub fn into_box(self) -> Box<dyn $trait_name> {
+            match self {
+                $($enum_name::$enumvariant(foo) => Box::new(foo),)*
+            }
+        }
+    }
+}}

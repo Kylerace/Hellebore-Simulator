@@ -20,10 +20,15 @@ use nalgebra::UnitQuaternion;
 #[macro_use]
 mod globals;
 mod mover;
+mod actor;
+mod action;
+mod space;
 
+use crate::actor::*;
 use crate::mover::*;
 use crate::globals::*;
-
+use crate::action::*;
+use crate::space::*;
 
 /*
 macro_rules! vec_new {
@@ -85,7 +90,7 @@ fn check_collision(mover1: (Rc<RefCell<Mover>>, &Deltas), mover2: (Rc<RefCell<Mo
 
 pub type CollisionList = Vec<(Rc<RefCell<Mover>>, Rc<RefCell<Mover>>)>;
 
-fn find_collisions(movers: &MoversList, time: f64, dt: f64) {
+fn find_collisions(movers: &mut MoversList, time: f64, dt: f64) {
     let mut collisions: CollisionList = vec![];
     for i in 0..movers.len() {
         for j in i+1..movers.len() {
@@ -102,14 +107,31 @@ fn find_collisions(movers: &MoversList, time: f64, dt: f64) {
             }
         }
     }
-    handle_collisions(collisions, time, dt)
+    handle_collisions(collisions, movers, time, dt)
 }
 
-fn handle_collisions(colliders: CollisionList, time: f64, dt: f64) {
+fn handle_collisions(colliders: CollisionList, movers: &mut MoversList, time: f64, dt: f64) {
     for collision in colliders.iter() {
-        flag_print!("print_handle_collisions", "COLLISION mover: {} (at {} radius = {}) and mover: {} (at {} radius = {}) collided at time = {}", 
-            collision.0.borrow().name, stringify_vector!(collision.0.borrow().translation.borrow(), 3), collision.0.borrow().radius, 
-            collision.1.borrow().name, stringify_vector!(collision.1.borrow().translation.borrow(), 3), collision.1.borrow().radius, time + dt);
+        let m1 = collision.0.clone();
+        let m2 = collision.1.clone();
+
+        let v1 = m1.borrow().velocity.clone();
+        let v2 = m2.borrow().velocity.clone();
+
+        let mass1 = m1.borrow().mass();
+        let mass2 = m2.borrow().mass();
+
+        let e1 = 0.5 * mass1 * v1.borrow().magnitude().powf(2.);
+        let e2 = 0.5 * mass2 * v2.borrow().magnitude().powf(2.);
+        
+        if f64::max(e1,e2) >= REMOVE_HIT_MOVERS_BEYOND_X_JOULES {
+            m1.borrow_mut().set_health(0.);
+            m2.borrow_mut().set_health(0.);
+        }
+
+        flag_print!("print_handle_collisions", "COLLISION mover: {} (at {}, velocity = {}, energy = {} J, r = {}) and mover: {} (at {}, velocity = {}, energy = {} J, r = {}) collided at time = {}", 
+            collision.0.borrow().name, stringify_vector!(collision.0.borrow().translation.borrow(), 3), stringify_vector!(v1.borrow(), 3), e1, collision.0.borrow().radius, 
+            collision.1.borrow().name, stringify_vector!(collision.1.borrow().translation.borrow(), 3), stringify_vector!(v2.borrow(), 3), e2, collision.1.borrow().radius, time);
     }
 }
 
@@ -137,7 +159,60 @@ impl Deltas {
 }
 
 fn is_done(movers: &MoversList, time_elapsed: f64) -> bool {
-    movers.iter().all(|t| t.0.borrow().is_alive == false) || time_elapsed > MAX_DURATION
+    let mut ret = movers.iter().all(|t| t.0.borrow().is_alive == false);
+    if ret {
+        println!("GAME DONE DUE TO ALL MOVERS DYING");
+        return ret;
+    }
+    ret = ret || time_elapsed > MAX_DURATION;
+    if ret {
+        println!("GAME DONE DUE TO TIME");
+        return ret;
+    }
+
+    let mut movers_by_team: Vec<(String, Vec<Rc<RefCell<Mover>>>, usize)> = vec![];
+    for m_tuple in movers.iter() {
+        let movers_team = m_tuple.0.borrow().team.clone();
+
+        let mut found_existing_team = false;
+        for existing_team_tuple in movers_by_team.iter_mut() {
+            if movers_team == existing_team_tuple.0 {
+                existing_team_tuple.1.push(m_tuple.0.clone());
+                found_existing_team = true;
+                if m_tuple.0.borrow().is_alive {
+                    existing_team_tuple.2 += 1;
+                }
+                break;
+            }
+        }
+        if !found_existing_team {
+            let to_add = match m_tuple.0.borrow().is_alive {
+                true => 1, 
+                false => 0
+            };
+            movers_by_team.push((movers_team, vec![m_tuple.0.clone()], to_add));
+        }
+    }
+
+    if movers_by_team.len() > 1 {
+        let mut surviving_teams = 0;
+        let mut last_surviving_team_name: Option<String> = None;
+        for team_tuple in movers_by_team.iter() {
+            if team_tuple.2 > 0 {
+                surviving_teams += 1;
+                last_surviving_team_name = Some(team_tuple.0.clone());
+            }
+        }
+
+        if surviving_teams == 1 {
+            ret = true;
+            println!("GAME DONE DUE TO TEAM {} BEING THE ONLY SURVIVOR", last_surviving_team_name.unwrap_or("ERROR".to_string()));
+        }
+    }
+
+
+
+    ret
 }
 
 ///(linear, torque) in parent coordinates (world coords for top level movers, parent body coords for child movers)
@@ -260,7 +335,7 @@ fn poll_actors(movers: &mut MoversList, time: f64, dt: f64) {
     let mut movers_to_poll: Vec<&MoverTuple> = vec![];
     {
     for m in movers.iter() {
-        if m.2.is_none() {//actor
+        if m.2.is_none() || !m.0.borrow().is_alive {//actor
             continue;
         }
         movers_to_poll.push(m);
@@ -430,8 +505,12 @@ fn create_movers(movers: &mut MoversList) {
 
     let first_rc = Rc::new(first);
 
+    let third = Rc::new(RefCell::new(Mover::new(Some(Vect3_new!(-1000., -1000., -1000.)), None)));
+    third.borrow_mut().team = "red".to_string();
+
     movers.push( (first_rc, Deltas::new(), Some(Rc::new(RefCell::new(first_ai)))) );
     movers.push( (Rc::new(second), Deltas::new(), None) );
+    movers.push((third, Deltas::new(), None));
 }
 
 fn test_shit() {
