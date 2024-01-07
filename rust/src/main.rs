@@ -65,10 +65,7 @@ fn check_collision(mover1: (Rc<RefCell<Mover>>, &Deltas), mover2: (Rc<RefCell<Mo
 
     let distance = get_dist(&mover1.0.borrow(), &mover2.0.borrow());
 
-    //let mover1_distance_delta = vect3::get_dist(mover1.0.translation, mover1.1.new_positions.lin);
-
-
-    let mut collides = (distance <= radius1) || (distance <= radius2);
+    let mut collides = distance <= (radius1 + radius2) * COLLISION_RADIUS_MULTIPLIER;
     if collides {
         return Colliding::Now
     }
@@ -290,7 +287,7 @@ fn sum_forces(movers: &mut MoversList, dt: f64) {
 fn set_initial_vectors(movers: &mut MoversList, dt: f64) {
 
     for (m, delta, a) in movers.iter_mut() {
-        let mover = m.borrow();
+        let mover = m.borrow_mut();
 
         let force = delta.forces.0;
         let torque = delta.forces.1;
@@ -316,17 +313,36 @@ fn set_initial_vectors(movers: &mut MoversList, dt: f64) {
 
         //let mut translation = *mover.translation.borrow_mut();
 
-
-        *mover.velocity.borrow_mut() += delta.accelerations.0 * dt;
+        let lin_vel = delta.accelerations.0 * dt;
+        *mover.velocity.borrow_mut() += lin_vel;
+        delta.initial_velocities.0 += lin_vel;
 
         //let mut rotation = *mover.rotation.borrow_mut();
         *mover.angular_velocity.borrow_mut() += delta.accelerations.1 * dt;
 
+        /* 
+        
         *mover.translation.borrow_mut() += *mover.velocity.borrow() * dt;
 
         let delta_orientation = *mover.angular_velocity.borrow() * dt;
         *mover.rotation.borrow_mut() *= UnitQuaternion::<f64>::from_euler_angles(delta_orientation.x, delta_orientation.y, delta_orientation.z);
+        */
     }
+}
+
+fn set_positions(movers: &mut MoversList, dt: f64) {
+    for (m, delta, _) in movers.iter_mut() {
+        let mover = m.borrow();
+
+        *mover.translation.borrow_mut() += *mover.velocity.borrow() * dt;
+        //lin_pos_change(mover.translation.borrow_mut(), mover.velocity.borrow(), dt);
+        
+        let delta_orientation = *mover.angular_velocity.borrow() * dt;
+        *mover.rotation.borrow_mut() *= UnitQuaternion::<f64>::from_euler_angles(delta_orientation.x, delta_orientation.y, delta_orientation.x);
+    }
+}
+fn lin_pos_change(translation: &mut Vect3, velocity: &Vect3, dt: f64) {
+    *translation += *velocity * dt;
 }
 
 struct RunResult;
@@ -374,77 +390,167 @@ fn poll_actors(movers: &mut MoversList, time: f64, dt: f64) {
 
 }
 
+fn decide_actor_dt(initial_dt: f64, current_dt: f64, movers: &MoversList) -> f64 {
+
+    initial_dt
+}
+
+fn decide_movement_dt(initial_dt: f64, current_dt: f64, actor_dt: f64, movers: &MoversList) -> f64 {
+    let mut living_movers: Vec<&MoverTuple> = vec![];
+
+    for tup in movers.iter() {
+        if tup.0.borrow().is_alive {
+            living_movers.push(tup);
+        }
+    }
+
+    let mut minimum_dt = actor_dt;
+
+    //println!("movers len {}", movers.len());
+
+    for i in 0..movers.len() {// (n * (n + 1))/2, if we always have less than 30 movers then this is 450 + 15.5 = 465.6 movers
+        //println!("i: {}", i);
+        for j in (i+1)..movers.len() {
+            //println!("j: {}", j);
+            let _first = movers[i].0.clone();
+            let _second = movers[j].0.clone();
+            let first = _first.borrow();
+            let second = _second.borrow();
+            if !first.is_alive && !second.is_alive {
+                flag_print!("print_decide_movement_dt", "\treturned due to both being dead");
+                continue;
+            }
+            let v1 = first.velocity.borrow();
+            let v2 = second.velocity.borrow();
+            let vcombined = *v1 - *v2;
+
+            let pos1 = first.translation.borrow();
+            let pos2 = second.translation.borrow();
+            let diff = *pos1 - *pos2;
+
+            let r1 = first.radius;
+            let r2 = second.radius;
+            let rsquared = f64::powf(r1+r2, 2.);
+
+            let starting_distance = f64::sqrt(diff.dot(&diff));//f64::sqrt(f64::powf(pos1.x - pos2.x, 2.) + f64::powf(pos1.y - pos2.y, 2.) + f64::powf(pos1.z - pos2.z, 2.));
+
+            if starting_distance <= r1 + r2 {
+                flag_print!("print_decide_movement_dt", "\treturned due to starting_distance {} <= radii sum {} + {} = {}", starting_distance, r1, r2, r1 + r2);
+                continue;
+            }
+
+            let rel_dot = Vector3::dot(&diff, &vcombined);
+            let rel_v_squared = vcombined.magnitude_squared();
+
+            if rel_dot > 0. || rel_v_squared == 0. {
+                //flag_print!("print_decide_movement_dt", "\treturned due to rel_dot {} > 0 or rel_v_squared {} == 0", rel_dot, rel_v_squared);
+                continue;
+
+            }
+
+            let min_dist_t = -rel_dot / rel_v_squared;
+            let min_dist_squared = (diff + vcombined * min_dist_t).magnitude_squared();
+
+            if min_dist_squared > rsquared {
+                flag_print!("print_decide_movement_dt", "\treturned due to min_dist_squared {} >= rsquared {}", min_dist_squared, rsquared);
+                continue;
+            }
+
+            let collide_dist_to_min_squared = rsquared - min_dist_squared;
+            let collide_t_before_min = f64::sqrt(collide_dist_to_min_squared / rel_v_squared);
+
+            let collision_time = min_dist_t - collide_t_before_min;
+
+            if collision_time < minimum_dt && collision_time > 0. {
+                flag_print!("print_decide_movement_dt", "decide_movement_dt() minimum set to {} from {} because movers ({} at {} moving {}) and ({} at {} moving {}) will collide sooner than normal dt. min_dist_squared = {}, min_dist_t = {}, rel_dot = {}, rel_v_squared = {}",
+                    collision_time, minimum_dt, 
+                    first.name, stringify_vector!(first.translation.borrow(),2), stringify_vector!(v1, 2), 
+                    second.name, stringify_vector!(second.translation.borrow(),2), stringify_vector!(v2, 2),
+                    min_dist_squared, min_dist_t, rel_dot, rel_v_squared);
+                
+                minimum_dt = collision_time;
+            } else {
+
+                flag_print!("print_decide_movement_dt", "decide_movement_dt() minimum unchanged at {} when minimum collision time was {} because movers ({} at {} moving {}) and ({} at {} moving {}) will not collide until at least dt time passes",
+                    minimum_dt, collide_t_before_min, 
+                    first.name, stringify_vector!(first.translation.borrow(),2), stringify_vector!(v1, 2), 
+                    second.name, stringify_vector!(second.translation.borrow(),2), stringify_vector!(v2, 2));
+                continue;
+            }
+
+        }
+    }
+    //flag_print!("print_decide_movement_dt", "minimum_dt: {}, actor: {}", minimum_dt, actor_dt);
+    minimum_dt 
+}
+
 fn run(initial_dt: f64, min_tick_time: std::time::Duration, movers: &mut MoversList) -> RunResult {
     let mut time: f64 = 0.;
     let mut dt: f64 = initial_dt;
 
-    loop {
+    let mut actor_dt: f64 = initial_dt;
+    let mut time_until_next_actor_tick: f64 = actor_dt;
+
+    let mut movement_dt: f64 = initial_dt;
+    let mut movement_time_elapsed: f64 = 0.;
+
+    'game: loop {
         let start_of_tick = time::Instant::now();
+
+        actor_dt = decide_actor_dt(initial_dt, actor_dt, movers);
+        time_until_next_actor_tick = actor_dt;
+
+        poll_actors(movers, time, actor_dt);
 
         for e in movers.iter_mut() {
             e.1 = Deltas::new();
         }
 
-        poll_actors(movers, time, dt);
+        sum_forces(movers, actor_dt);
+        set_initial_vectors(movers, actor_dt);
 
-        sum_forces(movers, dt);
-        set_initial_vectors(movers, dt);
+        movement_dt = decide_movement_dt(initial_dt, movement_dt, actor_dt, movers).min(time_until_next_actor_tick);
+        
+        let starting_movement_dt = movement_dt;
 
-        find_collisions(movers, time, dt);
+        movement_time_elapsed = 0.;
+        
+        let mut i = 0;
+        'movement: loop {
+            i += 1;
+            if i > 1000 || movement_dt <= 0. {
+                println!("----------INFINITE MOVEMENT LOOP DETECTED, QUITTING GAME----------");
+                break 'game;
+            }
+            //println!("t={}, movement_dt = {}, actor_dt = {}, time_until_next_actor_tick = {}, starting movement_dt = {}", time, movement_dt, actor_dt, time_until_next_actor_tick, starting_movement_dt);
 
-        for m in movers.iter() {
-            //let mover_1_force = format!("[{}, {}, {}]", mover.1.forces.0.x, mover.1.forces.0.y, mover.1.forces.0.z);
+            set_positions(movers, movement_dt);
 
-            let mover = m.0.borrow();
+            find_collisions(movers, time, movement_dt);
 
-            #[cfg(feature = "print_run_deltas_any")] 
-            {
-                println!("run deltas:");
-                println!("\tmover: {}", mover.name);
-                println!("\ttime/dt: {}/{} s", time, dt);
+            print_run_deltas(time, movement_dt, movers);
+            
+            time += movement_dt;
+
+            if is_done(movers, time) {
+                break 'game;
+            }
+            movement_time_elapsed += movement_dt;
+            time_until_next_actor_tick -= movement_dt;
+
+
+            movement_dt = movement_dt.min(time_until_next_actor_tick);
+
+            if time_until_next_actor_tick <= 0. {
+                break 'movement;
             }
 
-            #[cfg(feature = "print_run_deltas_linear")]
-            {
-                println!("\tforce: {} N", stringify_vector!(m.1.forces.0, 4));
-                println!("\tacceleration: {} m/s/s", stringify_vector!(m.1.accelerations.0, 4));
-                println!("\tvelocity: {} m/s", stringify_vector!(*mover.velocity.borrow(), 4));
-                println!("\tposition: {} m", stringify_vector!(*mover.translation.borrow(), 4));
-            }
+            //for e in movers.iter_mut() {
+            //    e.1 = Deltas::new();
+            //}
 
-            #[cfg(feature = "print_run_deltas_angular")]
-            {
-                println!("\ttorque: {} Nm", stringify_vector!(m.1.forces.1, 4));
-                println!("\tangular acceleration: {} rad/s/s:", stringify_vector!(m.1.accelerations.1, 4));
-                println!("\tangular velocity: {} rad/s", stringify_vector!(*mover.angular_velocity.borrow(), 4));
-                println!("\torientation: {} rad", *mover.rotation.borrow());
-            }
-
-            #[cfg(feature = "print_run_deltas_thrust_vectors")]
-            {
-                let mut lines: Vec<String> = vec![];
-                
-                if mover.current_thrust > 0. {
-                    lines.push(format!("{} current thrust: {}, thrust rotation: {}, F_thrust: {}", mover.name, mover.current_thrust, mover.thrust_rotation, stringify_vector!(mover.F_thrust)));
-                }
-
-                for _child in mover.children.iter() {
-                    let child = _child.borrow();
-                    if child.current_thrust > 0. {
-                        lines.push(format!("{} current thrust: {}, thrust rotation: {}, F_thrust: {}", child.name, child.current_thrust, child.thrust_rotation, stringify_vector!(child.F_thrust)));
-                    }
-                }
-
-                for line in lines {
-                    println!("\t\t{}",line);
-                }
-            }
         }
 
-        if is_done(movers, time) {
-            break;
-        }
-        time += dt;
 
         let end_of_tick = time::Instant::now();
 
@@ -462,8 +568,85 @@ fn run(initial_dt: f64, min_tick_time: std::time::Duration, movers: &mut MoversL
     RunResult
 }
 
+
+fn print_run_deltas(time: f64, dt: f64, movers: &MoversList) {
+
+    for m in movers.iter() {
+        //let mover_1_force = format!("[{}, {}, {}]", mover.1.forces.0.x, mover.1.forces.0.y, mover.1.forces.0.z);
+
+        let mover = m.0.borrow();
+
+        #[cfg(feature = "print_run_deltas_any")] 
+        {
+            println!("run deltas:");
+            let mover_ident_string = match mover.is_alive {
+                true => {
+                    format!("\t mover: {}", mover.name)
+                },
+                false => {
+                    format!("\tmover: {} (DECEASED)", mover.name)
+                }
+            };
+            println!("{}", mover_ident_string);
+            println!("\ttime/dt: {}/{} s", time, dt);
+        }
+
+        #[cfg(feature = "print_run_deltas_linear")]
+        {
+            println!("\tforce: {} N", stringify_vector!(m.1.forces.0, 4));
+            println!("\tacceleration: {} m/s/s", stringify_vector!(m.1.accelerations.0, 4));
+            println!("\tvelocity: {} m/s", stringify_vector!(*mover.velocity.borrow(), 4));
+            println!("\tposition: {} m", stringify_vector!(*mover.translation.borrow(), 4));
+        }
+
+        #[cfg(feature = "print_run_deltas_angular")]
+        {
+            println!("\ttorque: {} Nm", stringify_vector!(m.1.forces.1, 4));
+            println!("\tangular acceleration: {} rad/s/s:", stringify_vector!(m.1.accelerations.1, 4));
+            println!("\tangular velocity: {} rad/s", stringify_vector!(*mover.angular_velocity.borrow(), 4));
+            println!("\torientation: {} rad", *mover.rotation.borrow());
+        }
+
+        #[cfg(feature = "print_run_deltas_thrust_vectors")]
+        {
+            let mut lines: Vec<String> = vec![];
+            
+            if mover.current_thrust > 0. {
+                lines.push(format!("{} current thrust: {}, thrust rotation: {}, F_thrust: {}", mover.name, mover.current_thrust, mover.thrust_rotation, stringify_vector!(mover.F_thrust)));
+            }
+
+            for _child in mover.children.iter() {
+                let child = _child.borrow();
+                if child.current_thrust > 0. {
+                    lines.push(format!("{} current thrust: {}, thrust rotation: {}, F_thrust: {}", child.name, child.current_thrust, child.thrust_rotation, stringify_vector!(child.F_thrust)));
+                }
+            }
+
+            for line in lines {
+                println!("\t\t{}",line);
+            }
+        }
+    }
+}
+
 pub struct Photon {
 
+}
+
+fn create_movers_test(movers: &mut MoversList) {
+    let mut first = RefCell::new(Mover::new(None, None));
+    first.borrow_mut().name = "first".to_string();
+    first.borrow_mut().team = "red".to_string();
+    first.borrow_mut().set_thrust(1000000.);
+
+    let mut second = RefCell::new(Mover::new(Some(Vect3_new!(300.,0.,0.)), None));
+    second.borrow_mut().name = "second".to_string();
+    second.borrow_mut().team = "compact".to_string();
+    second.borrow_mut().set_thrust(5000.);
+    second.borrow_mut().set_thrust_rotation(UnitQuaternion::<f64>::from_axis_angle(&Vect3::z_axis(), 0.5*PI));
+
+    movers.push((Rc::new(first), Deltas::new(), None));
+    movers.push((Rc::new(second), Deltas::new(), None));
 }
 
 fn create_movers(movers: &mut MoversList) {
@@ -507,6 +690,7 @@ fn create_movers(movers: &mut MoversList) {
 
     let third = Rc::new(RefCell::new(Mover::new(Some(Vect3_new!(-1000., -1000., -1000.)), None)));
     third.borrow_mut().team = "red".to_string();
+    third.borrow_mut().name = "grace".to_string();
 
     movers.push( (first_rc, Deltas::new(), Some(Rc::new(RefCell::new(first_ai)))) );
     movers.push( (Rc::new(second), Deltas::new(), None) );
@@ -516,13 +700,13 @@ fn create_movers(movers: &mut MoversList) {
 fn test_shit() {
     let _x = Vect3_new!(1.,0.,0.);
     let _quat = UnitQuaternion::<f64>::from_axis_angle(&Vect3::z_axis(), 0.5*PI);
-    push_end_print!("quat {} (or rotation matrix {}) \n\tROTATES {} \n\tINTO {}", _quat, _quat.to_rotation_matrix(), stringify_vector!(_x,3), stringify_vector!(_quat * _x,3));
+    //push_end_print!("quat {} (or rotation matrix {}) \n\tROTATES {} \n\tINTO {}", _quat, _quat.to_rotation_matrix(), stringify_vector!(_x,3), stringify_vector!(_quat * _x,3));
 }
 
 fn main() {
 
     let mut movers: MoversList = vec![];
-    create_movers(&mut movers);
+    create_movers_test(&mut movers);
 
     let dt: f64 = STARTING_DT;
     let min_tick_time = time::Duration::from_millis((1000. / 60.) as u64);

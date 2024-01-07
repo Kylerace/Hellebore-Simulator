@@ -17,6 +17,7 @@ pub const DEFAULT_SPEED_OF_LIGHT: f64 = DEFAULT_COSMIC_SPEED_LIMIT;
 pub const PI: f64 = std::f64::consts::PI;
 pub const MAX_DURATION: f64 = 5.;
 pub const STARTING_DT: f64 = 10./1000.;
+pub const COLLISION_RADIUS_MULTIPLIER: f64 = 1.1;
 
 pub const REMOVE_HIT_MOVERS_BEYOND_X_JOULES: f64 = 100.;
 
