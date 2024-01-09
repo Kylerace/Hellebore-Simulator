@@ -218,15 +218,7 @@ impl Mover {
         
         let recursive_actions: Vec<(Rc<RefCell<Mover>>, Rc<Vec<ActionType>>)> = Mover::get_recursive_actions(ego.clone());
 
-        let decided_actions = actor.borrow_mut().decide(&observation, &recursive_actions);
-        let mut all_created_movers: Vec<Mover> = vec![];
-
-        for mover_action_pair in decided_actions.into_iter() {
-            for action in mover_action_pair.1.into_iter().map(|a| a.into_box()) {
-                let mut new_movers = action.perform_on(mover_action_pair.0.clone());
-                all_created_movers.append(&mut new_movers);
-            }
-        }
+        let all_created_movers: Vec<Mover> = actor.borrow_mut().decide(&observation, &recursive_actions);
 
         all_created_movers
     }

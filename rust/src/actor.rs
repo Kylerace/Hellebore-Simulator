@@ -4,11 +4,11 @@ use std::{rc::Rc, cell::RefCell};
 
 use nalgebra::{UnitQuaternion, Vector3, Rotation3, Unit};
 
-use crate::{Vect3, mover::{Mover}, ObservationSpace, globals::{MoverTuple, PI}, action::{ActionType, ThrustAction, ThrustActionRotationChoice}};
+use crate::{Vect3, mover::{Mover}, ObservationSpace, globals::{MoverTuple, PI}, action::{ActionType, ThrustAction, ThrustActionRotationChoice, Action}};
 
 
 pub trait Actor { 
-    fn decide<'a, 'b: 'a>(&'a mut self, observation: &ObservationSpace, actions: &Vec<(Rc<RefCell<Mover>>, Rc<Vec<ActionType>>)>) -> Vec<(Rc<RefCell<Mover>>, Vec<ActionType>)>;
+    fn decide<'a, 'b: 'a>(&'a mut self, observation: &ObservationSpace, actions: &Vec<(Rc<RefCell<Mover>>, Rc<Vec<ActionType>>)>) -> Vec<Mover>;
 }
 
 #[derive(Clone, Debug)]
@@ -23,8 +23,8 @@ impl_TraitEnumToBox!(
 );
 
 impl Actor for SimpleMissileActor {
-    fn decide<'a, 'b: 'a>(&'a mut self, observation: &ObservationSpace, actions: &Vec<(Rc<RefCell<Mover>>, Rc<Vec<ActionType>>)>) -> Vec<(Rc<RefCell<Mover>>, Vec<ActionType>)> {
-        let mut output: Vec<(Rc<RefCell<Mover>>, Vec<ActionType>)> = vec![];
+    fn decide<'a, 'b: 'a>(&'a mut self, observation: &ObservationSpace, actions: &Vec<(Rc<RefCell<Mover>>, Rc<Vec<ActionType>>)>) -> Vec<Mover> {
+        let mut output: Vec<Mover> = vec![];
 
         //flag_print!("print_SimpleMissileActor", "ZERO, action len: {}", actions.len());
 
@@ -164,7 +164,8 @@ impl Actor for SimpleMissileActor {
         return_thrust_action.rotation = Some(ThrustActionRotationChoice::SetRotation(new_thrust_rotation));
         return_thrust_action.new_thrust_force = Some(return_thrust_action.new_thrust_bounds.high);
 
-        output.push((thrust_action.unwrap().0, vec![ActionType::ThrustAction(return_thrust_action)]));
+        output.append(&mut return_thrust_action.perform_on(observation.ego.clone()));
+        //output.push((thrust_action.unwrap().0, vec![ActionType::ThrustAction(return_thrust_action)]));
 
         flag_print!("print_SimpleMissileActor", "SimpleMissileActor {} at {}, closest enemy: {} at {}, pos delta {}\n\tangle from us to them is {}\n\trotation matrix is {}", 
             observation.ego.borrow().name, stringify_vector!(our_translation, 3), closest_enemy_ref.name, stringify_vector!(their_translation, 3), stringify_vector!(pos_delta, 3), new_thrust_rotation, new_thrust_rotation.to_rotation_matrix());

@@ -372,12 +372,9 @@ fn poll_actors(movers: &mut MoversList, time: f64, dt: f64) {
         let a = &_m.2;
 
         let new_a = a.as_ref().unwrap().clone();
-        //let next_a = new_a.borrow_mut();//.into_box();
-        //let nexter_a = next_a.into_box();
         let mut created_movers = Mover::decide(m.clone(), new_a, &*movers, time, dt);
 
         all_created_movers.append(&mut created_movers);
-        //movers.append(&created_movers.map(|m| (Rc::new(RefCell::new(mover)), Deltas::new(), None)));
     }
 
 
