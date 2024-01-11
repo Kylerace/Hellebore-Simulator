@@ -1,7 +1,7 @@
 use std::{rc::Rc, cell::RefCell};
 use nalgebra::UnitQuaternion;
 
-use crate::{Mover, Interval, Space};
+use crate::{Mover, Interval, Space, globals::{ActorRepresentation, Vect3}};
 
 pub trait Action {
     /// create a new mover by returning one in the vector, otherwise just affect mover 
@@ -111,6 +111,90 @@ impl Action for TestAction {
     }
 }
 
+pub struct ShootProjectileAction {
+    pub projectile: Option<Mover>,
+    pub projectile_actor: Option<ActorRepresentation>,
+    pub target_point: Vect3,
+    /// the mover that contains our gun
+    pub top_level_mover_center: Vect3,
+    pub top_level_mover_radius: f64,
+    ///what we shoot from, if it's not a top level mover we set its rotation to our rotation and then shoot
+    pub gun_center: Vect3,
+    pub gun_radius: f64,
+    /// when we create the projectile we create it (radius of gun + radius of projectile) * this 
+    /// distance away from the gun, if that is inside the top level mover then we dont create the mover
+    pub magic_shot_distance_coefficient: f64,
+    /// velocity added to that of the top level mover's
+    pub initial_relative_velocity: Vect3,
+}
+
+///returns the path from our_level to target
+fn search_mover_child_tree(our_level: Rc<RefCell<Mover>>, target: Rc<RefCell<Mover>>) -> Option<Vec<Rc<RefCell<Mover>>>> {//TODO: move somewhere not stupid
+    if Rc::ptr_eq(&our_level, &target) {
+        return Some(vec![target.clone()]);
+    }
+    let mut path_down: Vec<Rc<RefCell<Mover>>> = vec![];
+    for child in our_level.borrow().children.iter() {
+        let mut child_path = search_mover_child_tree(child.clone(), target.clone());
+
+        if let Some(mut v) = child_path {
+            path_down.push(our_level.clone());
+            path_down.append(&mut v);
+            return Some(path_down);
+        }
+    }
+
+    if path_down.is_empty() {
+        None
+    } else {
+        Some(path_down)
+    }
+}
+
+impl ShootProjectileAction {
+    fn try_create(top_level_mover: Rc<RefCell<Mover>>, gun: Rc<RefCell<Mover>>, target_point: Vect3, added_velocity: f64) -> Option<Self> {
+        let gun_is_top_level = Rc::ptr_eq(&top_level_mover, &gun);
+        let mut origin: Vect3 = *top_level_mover.borrow().translation.borrow();
+        if !gun_is_top_level {
+            //let mut nested_path_to_gun: Option<Vec<Rc<RefCell<Mover>>>> = search_mover_child_tree(top_level_mover.clone(), gun.clone());
+            if let Some(nested_path_to_gun) = search_mover_child_tree(top_level_mover.clone(), gun.clone()) {
+                let mut last_mover: Option<Rc<RefCell<Mover>>> = None;
+                for mover in nested_path_to_gun.iter() {
+                    if let Some(l_m) = last_mover {
+                        origin += l_m.borrow().rotation.borrow().transform_vector(&mover.borrow().translation.borrow());
+                    }
+                    last_mover = Some(mover.clone());
+                }
+            } else {
+                println!("UNABLE TO FIND GUN {} INSIDE TOP LEVEL MOVER {}", gun.borrow().name, top_level_mover.borrow().name);
+                return None;
+            }
+        }
+        let relative_position = target_point - origin;
+        let mut unit_vector_to_target: Vect3 = relative_position.normalize();
+
+        let mut us = ShootProjectileAction {
+            projectile: None, 
+            projectile_actor: None, 
+            target_point: target_point,
+            top_level_mover_center: *top_level_mover.borrow().translation.borrow(),
+            top_level_mover_radius: top_level_mover.borrow().radius,
+            gun_center: origin,
+            gun_radius: gun.borrow().radius,
+            magic_shot_distance_coefficient: 1.1,
+
+        }
+
+
+    }
+}
+
+
+impl Action for ShootProjectileAction {
+    fn perform_on(&self, mover: Rc<RefCell<Mover>>) -> Vec<Mover> {
+        vec![]
+    }
+}
 
 //#[derive(Clone)]
 //pub enum ActionType {

@@ -85,8 +85,8 @@ impl Actor for SimpleMissileActor {
         //mover's current velocity and the ideal velocity and thus hit the target 
 
         //from us to them
-        let _our_translation = observation.ego.borrow();
-        let our_translation = _our_translation.translation.borrow();
+        let us = observation.ego.borrow();
+        let our_translation = us.translation.borrow();
         
         let closest_enemy_ref = closest_enemy.as_ref().unwrap().borrow();
         let their_translation = closest_enemy_ref.translation.borrow();
@@ -94,21 +94,12 @@ impl Actor for SimpleMissileActor {
         let pos_delta = *their_translation - *our_translation;//Vector3::<f64>::new(our_translation.x - their_translation.x, our_translation.y - their_translation.y, our_translation.z - their_translation.z);
 
         let normed_pos_delta = pos_delta.clone().normalize();
-        let missile_rotated_x = _our_translation.rotation.borrow().transform_vector(&Vect3::x()).normalize();
+        //heading, the rotation from this to pos_delta is the rotation that thrust_rotation needs to be set to for F_thrust to push us towards the enemy
+        let missile_rotated_x = us.rotation.borrow().transform_vector(&Vect3::x()).normalize();
+        
         //set rotation to the quaternion that rotates missile_rotated_x to normed_pos_delta
 
         let direction_to_enemy = UnitQuaternion::rotation_between(&missile_rotated_x, &normed_pos_delta);
-        //let unwrapped = direction_to_enemy.unwrap();
-        //flag_print!("print_SimpleMissileActor", "  rotation_between(missile_rotated_x {}, normed_pos_delta {}) = {}, that transforming [1,0,0] = {}", 
-        //    stringify_vector!(missile_rotated_x), stringify_vector!(normed_pos_delta), unwrapped, stringify_vector!(unwrapped.transform_vector(&Vect3::x())));
-        
-
-        let up_dir = &Vector3::z();
-
-        let mut to_closest = UnitQuaternion::look_at_rh(&pos_delta, up_dir);
-        to_closest.renormalize();
-
-        let rot_matrix = Rotation3::look_at_rh(&pos_delta, up_dir);
 
         let new_thrust_rotation = match direction_to_enemy {//observation.ego.borrow().thrust_rotation.inverse() * to_closest;
             Some(q) => {
