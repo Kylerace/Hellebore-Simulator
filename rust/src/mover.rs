@@ -1,7 +1,7 @@
 
 use std::{rc::Rc, cell::RefCell, marker::Tuple, collections::HashMap, hash::Hash};
 use nalgebra::{UnitQuaternion, Vector3, Rotation3, Unit};
-use crate::{Vect3, globals::{PI, C_S_L, MoverTuple}, MoversList, Deltas, actor::Actor, action::ActionType, space::ObservationSpace};
+use crate::{Vect3, globals::{PI, C_S_L, MoverTuple, ActorRepresentation}, MoversList, Deltas, actor::Actor, action::ActionType, space::ObservationSpace};
 use num::Bounded;
 
 
@@ -207,7 +207,7 @@ impl Mover {
         recursive_actions
     }
 
-    pub fn decide(ego: Rc<RefCell<Mover>>, actor: Rc<RefCell<dyn Actor>>, movers: &MoversList, start_time: f64, dt: f64) -> Vec<Mover> {
+    pub fn decide(ego: Rc<RefCell<Mover>>, actor: Rc<RefCell<dyn Actor>>, movers: &MoversList, start_time: f64, dt: f64) -> Vec<(Mover, Option<ActorRepresentation>)> {
         let observation = ObservationSpace {
             ego: ego.clone(),
             all_movers: movers,
@@ -218,7 +218,7 @@ impl Mover {
         
         let recursive_actions: Vec<(Rc<RefCell<Mover>>, Rc<Vec<ActionType>>)> = Mover::get_recursive_actions(ego.clone());
 
-        let all_created_movers: Vec<Mover> = actor.borrow_mut().decide(&observation, &recursive_actions);
+        let all_created_movers: Vec<(Mover, Option<ActorRepresentation>)> = actor.borrow_mut().decide(&observation, &recursive_actions);
 
         all_created_movers
     }

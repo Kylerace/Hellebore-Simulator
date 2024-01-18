@@ -4,11 +4,11 @@ use std::{rc::Rc, cell::RefCell};
 
 use nalgebra::{UnitQuaternion, Vector3, Rotation3, Unit};
 
-use crate::{Vect3, mover::{Mover}, ObservationSpace, globals::{MoverTuple, PI}, action::{ActionType, ThrustAction, ThrustActionRotationChoice, Action}};
+use crate::{Vect3, mover::{Mover}, ObservationSpace, globals::{MoverTuple, PI, ActorRepresentation}, action::{ActionType, ThrustAction, ThrustActionRotationChoice, Action}};
 
 
 pub trait Actor { 
-    fn decide<'a, 'b: 'a>(&'a mut self, observation: &ObservationSpace, actions: &Vec<(Rc<RefCell<Mover>>, Rc<Vec<ActionType>>)>) -> Vec<Mover>;
+    fn decide<'a, 'b: 'a>(&'a mut self, observation: &ObservationSpace, actions: &Vec<(Rc<RefCell<Mover>>, Rc<Vec<ActionType>>)>) -> Vec<(Mover, Option<ActorRepresentation>)>;
 }
 
 #[derive(Clone, Debug)]
@@ -23,8 +23,8 @@ impl_TraitEnumToBox!(
 );
 
 impl Actor for SimpleMissileActor {
-    fn decide<'a, 'b: 'a>(&'a mut self, observation: &ObservationSpace, actions: &Vec<(Rc<RefCell<Mover>>, Rc<Vec<ActionType>>)>) -> Vec<Mover> {
-        let mut output: Vec<Mover> = vec![];
+    fn decide<'a, 'b: 'a>(&'a mut self, observation: &ObservationSpace, actions: &Vec<(Rc<RefCell<Mover>>, Rc<Vec<ActionType>>)>) -> Vec<(Mover, Option<ActorRepresentation>)> {
+        let mut output: Vec<(Mover, Option<ActorRepresentation>)> = vec![];
 
         //flag_print!("print_SimpleMissileActor", "ZERO, action len: {}", actions.len());
 
@@ -141,11 +141,11 @@ impl Actor for SimpleMissileActor {
                         }
                     }
                 }
-
+                //i dont even know how this works 2 weeks later, cant i literally just multiply it by -1?
                 let new_axis = Vect3_new!(1.,1., -(other_val1 + other_val2)/nonzero_value_main.unwrap());
                 let new_rotation = UnitQuaternion::from_axis_angle(&Unit::<Vect3>::new_normalize(new_axis), PI);
 
-                println!("AAAAAAAAAAAAA rotated is {}, axis is {}", new_rotation, new_axis);
+                //println!("AAAAAAAAAAAAA rotated is {}, axis is {}", new_rotation, new_axis);
 
                 new_rotation
             }

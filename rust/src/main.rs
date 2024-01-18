@@ -361,7 +361,7 @@ fn poll_actors(movers: &mut MoversList, time: f64, dt: f64) {
     }
 
 
-    let mut all_created_movers: Vec<Mover> = vec![];
+    let mut all_created_movers: Vec<(Mover, Option<ActorRepresentation>)> = vec![];
 
     for _m in movers_to_poll.into_iter() {
         //this code is weird because of an ant style evolutionary algorithm to develop code to get past the borrow checker
@@ -379,7 +379,7 @@ fn poll_actors(movers: &mut MoversList, time: f64, dt: f64) {
 
 
     for new_mover in all_created_movers.into_iter() {
-        let new_tuple = (Rc::new(RefCell::new(new_mover)), Deltas::new(), Option::<ActorRepresentation>::None);
+        let new_tuple = (Rc::new(RefCell::new(new_mover.0)), Deltas::new(), new_mover.1);
         movers.push(new_tuple);
     }
 
